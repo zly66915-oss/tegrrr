@@ -1,0 +1,7 @@
+{
+  "name": "معلم الدراسة الذكي - Smart Study Tutor",
+  "description": "تطبيق تعليمي متطور يتيح لك الدراسة من خلال ملفات PDF باستخدام المحادثة الصوتية والنصية مع الذكاء الاصطناعي جيميناي.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
