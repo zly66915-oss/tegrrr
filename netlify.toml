@@ -17,3 +17,5 @@
     X-XSS-Protection = "1; mode=block"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+    # السماح بالاتصال بخوادم جوجل للذكاء الاصطناعي (مهم جداً للصوت)
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.googleapis.com wss://*.googleapis.com https://esm.sh; img-src 'self' data:; media-src 'self' blob:;"

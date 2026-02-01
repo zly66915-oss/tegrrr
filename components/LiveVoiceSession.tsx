@@ -23,6 +23,7 @@ const LiveVoiceSession: React.FC<LiveVoiceSessionProps> = ({ pdfContent, isActiv
   const retryTimeoutRef = useRef<number | null>(null);
 
   const cleanup = useCallback(() => {
+    console.log('Cleaning up audio resources...');
     if (scriptProcessorRef.current) {
       scriptProcessorRef.current.disconnect();
       scriptProcessorRef.current = null;
@@ -35,9 +36,7 @@ const LiveVoiceSession: React.FC<LiveVoiceSessionProps> = ({ pdfContent, isActiv
 
     if (sessionRef.current) {
       try {
-        if (typeof sessionRef.current.close === 'function') {
-          sessionRef.current.close();
-        }
+        sessionRef.current.close();
       } catch (e) {}
       sessionRef.current = null;
     }
@@ -47,13 +46,11 @@ const LiveVoiceSession: React.FC<LiveVoiceSessionProps> = ({ pdfContent, isActiv
     });
     activeSourcesRef.current.clear();
     
-    if (audioContextInRef.current) {
+    if (audioContextInRef.current && audioContextInRef.current.state !== 'closed') {
       audioContextInRef.current.close().catch(() => {});
-      audioContextInRef.current = null;
     }
-    if (audioContextOutRef.current) {
+    if (audioContextOutRef.current && audioContextOutRef.current.state !== 'closed') {
       audioContextOutRef.current.close().catch(() => {});
-      audioContextOutRef.current = null;
     }
   }, []);
 
@@ -65,20 +62,23 @@ const LiveVoiceSession: React.FC<LiveVoiceSessionProps> = ({ pdfContent, isActiv
     cleanup();
     onToggle(false);
     setIsConnecting(false);
-    setStatus('تم إيقاف المعلم');
+    setStatus('تم إيقاف الجلسة');
   }, [onToggle, cleanup]);
 
   const startSession = async (retryAttempt = 0) => {
-    if (!process.env.API_KEY) {
-      setStatus('خطأ: مفتاح API مفقود');
+    // التأكد من وجود مفتاح API
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      setStatus('خطأ: لم يتم العثور على مفتاح API في إعدادات الموقع');
+      console.error('API_KEY is missing from process.env');
       return;
     }
 
     setIsConnecting(true);
-    setStatus(retryAttempt > 0 ? `إعادة محاولة الاتصال (${retryAttempt}/5)...` : 'جاري فتح قناة الصوت...');
+    setStatus('جاري طلب إذن الميكروفون...');
 
     try {
-      // 1. طلب الميكروفون أولاً
+      // 1. طلب الميكروفون (يجب أن يكون عبر HTTPS)
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
@@ -88,7 +88,7 @@ const LiveVoiceSession: React.FC<LiveVoiceSessionProps> = ({ pdfContent, isActiv
       });
       streamRef.current = stream;
 
-      // 2. إنشاء سياقات الصوت بعد تفاعل المستخدم
+      // 2. إعداد سياقات الصوت (يجب أن تبدأ بعد نقرة المستخدم)
       const inCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       const outCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       
@@ -98,14 +98,15 @@ const LiveVoiceSession: React.FC<LiveVoiceSessionProps> = ({ pdfContent, isActiv
       audioContextInRef.current = inCtx;
       audioContextOutRef.current = outCtx;
 
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      setStatus('جاري الاتصال بخدمة Gemini...');
+      const ai = new GoogleGenAI({ apiKey });
       
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         callbacks: {
           onopen: () => {
-            console.log('Gemini Live Connection Established');
-            setStatus('المعلم يستمع إليك الآن...');
+            console.log('Connected to Gemini Live API');
+            setStatus('متصل! المعلم يسمعك الآن...');
             setIsConnecting(false);
             onToggle(true);
             
@@ -126,7 +127,11 @@ const LiveVoiceSession: React.FC<LiveVoiceSessionProps> = ({ pdfContent, isActiv
               };
               
               sessionPromise.then((session) => {
-                try { session.sendRealtimeInput({ media: pcmBlob }); } catch (err) {}
+                try {
+                  session.sendRealtimeInput({ media: pcmBlob });
+                } catch (err) {
+                  console.error('Failed to send audio input:', err);
+                }
               });
             };
             
@@ -148,7 +153,9 @@ const LiveVoiceSession: React.FC<LiveVoiceSessionProps> = ({ pdfContent, isActiv
                 source.start(nextStartTimeRef.current);
                 nextStartTimeRef.current += audioBuffer.duration;
                 activeSourcesRef.current.add(source);
-              } catch (err) {}
+              } catch (decodeErr) {
+                console.error('Audio decoding error:', decodeErr);
+              }
             }
             
             if (message.serverContent?.interrupted) {
@@ -159,15 +166,15 @@ const LiveVoiceSession: React.FC<LiveVoiceSessionProps> = ({ pdfContent, isActiv
           },
           onerror: (e: any) => {
             console.error('Live API Error:', e);
-            const errorStr = String(e?.message || e || '').toLowerCase();
+            const errorMsg = String(e?.message || e || '').toLowerCase();
             
-            if ((errorStr.includes('unavailable') || errorStr.includes('503')) && retryAttempt < 5) {
+            if ((errorMsg.includes('unavailable') || errorMsg.includes('503')) && retryAttempt < 5) {
               const delay = Math.min(1000 * Math.pow(2, retryAttempt), 10000);
-              setStatus('الخدمة مشغولة، جاري المحاولة مرة أخرى...');
+              setStatus(`الخدمة مشغولة، إعادة محاولة خلال ${delay/1000} ثوانٍ...`);
               cleanup();
               retryTimeoutRef.current = window.setTimeout(() => startSession(retryAttempt + 1), delay);
             } else {
-              setStatus('فشل الاتصال. تأكد من الإنترنت وحاول لاحقاً.');
+              setStatus('انقطع الاتصال. يرجى التأكد من الإنترنت والمحاولة ثانية.');
               stopSession();
             }
           },
@@ -183,19 +190,20 @@ const LiveVoiceSession: React.FC<LiveVoiceSessionProps> = ({ pdfContent, isActiv
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
           },
-          systemInstruction: `أنت معلم دراسة عراقي ذكي. استخدم نص الملف المقدم: ${pdfContent.substring(0, 15000)}. 
-          تكلم باللهجة البغدادية المريحة. شجع الطالب بكلمات مثل "عاشت إيدك" و "بطل". 
-          إذا كان الملف غير واضح، حاول مساعدة الطالب في فهم الأساسيات.`,
+          systemInstruction: `أنت معلم دراسة عراقي ذكي وودود جداً. سياقك هو الملف التعليمي التالي: ${pdfContent.substring(0, 15000)}. 
+          تكلم باللهجة البغدادية (أريد لهجة عراقية أصلية ومريحة). 
+          ساعد الطالب بذكاء، شجعه بكلمات مثل "عاشت إيدك"، "بطل"، "منور". 
+          إذا سألك عن شيء غير موجود بالملف، حاول ترجعه للموضوع بأسلوب حلو.`,
         }
       });
       
       sessionRef.current = await sessionPromise;
     } catch (error: any) {
-      console.error('Start Error:', error);
+      console.error('Failed to start session:', error);
       if (error.name === 'NotAllowedError') {
-        setStatus('يجب السماح بالوصول للميكروفون من إعدادات المتصفح');
+        setStatus('خطأ: يجب السماح للموقع باستخدام الميكروفون');
       } else {
-        setStatus('عذراً، الخدمة غير متاحة حالياً. جرب المحادثة النصية.');
+        setStatus('عذراً، تعذر بدء المحادثة الصوتية حالياً.');
       }
       setIsConnecting(false);
       stopSession();
@@ -204,31 +212,43 @@ const LiveVoiceSession: React.FC<LiveVoiceSessionProps> = ({ pdfContent, isActiv
 
   return (
     <div className="flex flex-col items-center w-full">
-      <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 transition-all duration-700 ${isActive ? 'bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.5)]' : 'bg-blue-600 shadow-[0_0_20px_rgba(37,99,235,0.3)]'}`}>
+      <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 transition-all duration-700 ${isActive ? 'bg-red-500 shadow-[0_0_40px_rgba(239,68,68,0.6)]' : 'bg-blue-600 shadow-[0_0_20px_rgba(37,99,235,0.4)]'}`}>
         {isActive ? (
-          <div className="flex gap-1 items-center h-8">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="w-1.5 bg-white rounded-full animate-pulse" style={{ height: `${20 + Math.random() * 20}px`, animationDelay: `${i * 0.15}s` }} />
+          <div className="flex gap-1.5 items-center h-10">
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="w-1.5 bg-white rounded-full animate-bounce" style={{ height: `${30 + Math.random() * 30}%`, animationDelay: `${i * 0.1}s` }} />
             ))}
           </div>
         ) : (
-          <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
           </svg>
         )}
       </div>
       
-      <p className="text-slate-600 font-medium mb-6 text-center h-6 text-sm">{status}</p>
+      <p className="text-slate-700 font-bold mb-8 text-center min-h-[1.5rem] text-sm px-4 bg-slate-100 py-2 rounded-full border border-slate-200">{status}</p>
       
       <button
         onClick={isActive ? stopSession : () => startSession()}
         disabled={isConnecting}
-        className={`w-full max-w-xs py-4 rounded-2xl font-bold text-lg transition-all transform active:scale-95 ${isActive 
-          ? 'bg-red-50 text-red-600 border-2 border-red-200 hover:bg-red-100' 
-          : 'bg-blue-600 text-white hover:bg-blue-700 shadow-xl shadow-blue-200'} disabled:opacity-50`}
+        className={`w-full max-w-sm py-5 rounded-2xl font-black text-xl shadow-2xl transition-all transform active:scale-95 ${isActive 
+          ? 'bg-white text-red-600 border-4 border-red-500 hover:bg-red-50' 
+          : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-blue-300'} disabled:opacity-50`}
       >
-        {isConnecting ? 'جاري الاتصال...' : isActive ? 'إيقاف المعلم' : 'تحدث مع المعلم'}
+        {isConnecting ? (
+          <span className="flex items-center justify-center gap-2">
+            <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            جاري الاتصال...
+          </span>
+        ) : isActive ? 'إيقاف المعلم' : 'ابدأ التحدث مع المعلم'}
       </button>
+      
+      <div className="mt-8 text-slate-400 text-xs text-center px-6">
+        {isActive ? 'المعلم يسمعك، تكلم الآن بكل أريحية' : 'تأكد من وجودك في مكان هادئ للحصول على أفضل تجربة'}
+      </div>
     </div>
   );
 };
