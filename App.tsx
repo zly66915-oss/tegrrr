@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import FileUpload from './components/FileUpload';
 import LiveVoiceSession from './components/LiveVoiceSession';
 import ChatInterface from './components/ChatInterface';
@@ -10,6 +10,15 @@ const App: React.FC = () => {
   const [pdfData, setPdfData] = useState<PdfData | null>(null);
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [studyMode, setStudyMode] = useState<'voice' | 'chat'>('voice');
+  const [apiKeyError, setApiKeyError] = useState(false);
+
+  useEffect(() => {
+    // فحص أولي لمفتاح الـ API
+    if (!process.env.API_KEY) {
+      console.warn("API_KEY is missing. Make sure to set it in Netlify Environment Variables.");
+      setApiKeyError(true);
+    }
+  }, []);
 
   const handleFileProcessed = (name: string, content: string) => {
     setPdfData({ name, content });
@@ -24,6 +33,13 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-['Tajawal']">
+      {/* API Key Warning Overlay */}
+      {apiKeyError && (
+        <div className="fixed top-0 left-0 w-full bg-red-600 text-white p-2 text-center text-xs z-[100] font-bold shadow-lg">
+          ⚠️ تنبيه: مفتاح API غير موجود. يرجى إضافته في إعدادات Netlify ليعمل التطبيق.
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-sm">
         <div className="flex items-center gap-3">
@@ -53,9 +69,9 @@ const App: React.FC = () => {
         {appState === AppState.IDLE ? (
           <div className="max-w-xl mx-auto mt-12 text-center animate-fadeIn">
             <div className="mb-10">
-              <div className="inline-block bg-blue-50 text-blue-600 px-4 py-1.5 rounded-full text-xs font-bold mb-4">نسخة المطورين v2.5</div>
-              <h2 className="text-4xl font-black text-slate-900 mb-4 leading-tight">ادرس بذكاء، ليس بجهد</h2>
-              <p className="text-slate-600 text-lg">ارفع كتابك بصيغة PDF وسيقوم المعلم بتحليله ليشرحه لك صوتياً أو نصياً.</p>
+              <div className="inline-block bg-blue-50 text-blue-600 px-4 py-1.5 rounded-full text-xs font-bold mb-4">نسخة المعلم v2.5</div>
+              <h2 className="text-4xl font-black text-slate-900 mb-4 leading-tight">ادرس بذكاء مع جيميناي</h2>
+              <p className="text-slate-600 text-lg">ارفع كتابك بصيغة PDF وسأقوم بشرحه لك صوتياً أو نصياً.</p>
             </div>
             <FileUpload onProcessed={handleFileProcessed} isProcessing={appState === AppState.LOADING} />
           </div>
@@ -97,7 +113,7 @@ const App: React.FC = () => {
                 <div className="bg-white p-10 rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100 flex flex-col items-center">
                   <div className="text-center mb-10">
                     <h3 className="text-2xl font-bold text-slate-900 mb-2">المعلم الصوتي</h3>
-                    <p className="text-slate-500 text-sm">ناقش محتوى الملف صوتياً كما لو كنت مع معلم حقيقي</p>
+                    <p className="text-slate-500 text-sm">ناقش محتوى الملف صوتياً باللهجة العراقية</p>
                   </div>
                   <LiveVoiceSession 
                     pdfContent={pdfData?.content || ''} 
@@ -106,7 +122,7 @@ const App: React.FC = () => {
                   />
                   <div className="mt-12 flex flex-wrap justify-center gap-3">
                     <span className="bg-blue-50 text-blue-600 text-[10px] font-bold px-3 py-1 rounded-full">استجابة لحظية</span>
-                    <span className="bg-purple-50 text-purple-600 text-[10px] font-bold px-3 py-1 rounded-full">لهجة عراقية</span>
+                    <span className="bg-purple-50 text-purple-600 text-[10px] font-bold px-3 py-1 rounded-full">لهجة بغدادية</span>
                     <span className="bg-green-50 text-green-600 text-[10px] font-bold px-3 py-1 rounded-full">تحليل ذكي</span>
                   </div>
                 </div>
@@ -121,7 +137,7 @@ const App: React.FC = () => {
       </main>
 
       <footer className="py-8 text-center bg-white border-t border-slate-100 mt-auto">
-        <p className="text-slate-400 text-[11px] font-medium uppercase tracking-widest">Powered by Google Gemini 2.5 & React</p>
+        <p className="text-slate-400 text-[11px] font-medium uppercase tracking-widest">Powered by Google Gemini 2.5</p>
       </footer>
 
       <style>{`
